@@ -4,6 +4,15 @@ from typing import Optional
 
 app = FastAPI(title="Invest IA", version="0.2")
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # on ouvre tout pour tester
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 class LoanIn(BaseModel):
     principal: float
     annualRate: float = Field(..., ge=0, le=1)
