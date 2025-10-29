@@ -5,7 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Invest IA", version="0.3")
 
-# CORS (pour le front)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,9 +14,9 @@ app.add_middleware(
 
 class LoanIn(BaseModel):
     principal: float
-    annualRate: float = Field(..., ge=0, le=1)  # ex: 0.043
+    annualRate: float = Field(..., ge=0, le=1)
     years: int = Field(..., ge=1, le=35)
-    insuranceRate: float = 0.0                  # ex: 0.0025
+    insuranceRate: float = 0.0
 
 class PropertyIn(BaseModel):
     price: float
@@ -38,8 +37,8 @@ class ChargesIn(BaseModel):
 
 class TaxIn(BaseModel):
     regime: Literal["NU_MICRO", "LMNP_MICRO", "LMNP_REEL_LITE"] = "LMNP_MICRO"
-    tmi: float = Field(0.11, ge=0, le=0.6)      # tranche marginale (0–0.6)
-    psRate: float = Field(0.172, ge=0, le=0.3)  # prélèvements sociaux (17.2%)
+    tmi: float = Field(0.11, ge=0, le=0.6)
+    psRate: float = Field(0.172, ge=0, le=0.3)
 
 class SimulateIn(BaseModel):
     property: PropertyIn
@@ -63,27 +62,21 @@ def health():
 def simulate(payload: SimulateIn):
     p, r_, c, l, tax = payload.property, payload.rent, payload.charges, payload.loan, payload.tax or TaxIn()
 
-    # Frais de notaire (approx): ancien = notaryRate, neuf ~2.5%
     notary = p.price * (0.025 if p.isNew else p.notaryRate)
     total_cost = p.price + notary + p.agencyFees + p.works + p.furnishing
 
-    # Loyers
     loyer_brut = r_.monthly * 12
     loyer_annuel = r_.monthly * 12 * (1 - r_.vacancyRate)
 
-    # Exploitation
     charges_exploit = (c.monthly * 12) + c.taxFonciereAnnual + (c.managementRate * loyer_annuel)
     NOI = loyer_annuel - charges_exploit
 
-    # Dette
     mensualite = monthly_payment(l.principal, l.annualRate, l.years, l.insuranceRate)
     dette_annuelle = mensualite * 12
 
-    # Approximations année 1
     interest_y1 = l.principal * l.annualRate
     insurance_annual = l.principal * l.insuranceRate
 
-    # Cashflow
     cashflow_annuel = loyer_annuel - charges_exploit - dette_annuelle
     cashflow_mensuel = cashflow_annuel / 12
 
@@ -92,7 +85,6 @@ def simulate(payload: SimulateIn):
     net_net = 0 if total_cost == 0 else (loyer_annuel - charges_exploit) / total_cost
     dscr = 0 if dette_annuelle == 0 else NOI / dette_annuelle
 
-    # Fiscalité simplifiée
     tmi, ps = tax.tmi, tax.psRate
     impots_annuels = 0.0
     base_imposable = 0.0
@@ -107,18 +99,12 @@ def simulate(payload: SimulateIn):
         impots_annuels = base_imposable * (tmi + ps)
         details_fiscaux = {"abattement": 0.50, "type": "micro-BIC"}
     elif tax.regime == "LMNP_REEL_LITE":
-        # Amortissement bien (hors terrain 15%): 85% du prix sur 30 ans (approx)
         amort_bien = (p.price * 0.85) / 30.0
         amort_meubles = p.furnishing / 5.0 if p.furnishing else 0.0
         resultat_fiscal = loyer_annuel - (c.monthly * 12) - c.taxFonciereAnnual - (c.managementRate * loyer_annuel) - interest_y1 - insurance_annual - amort_bien - amort_meubles
-        base_imposable = max(0.0, resultat_fiscal)  # si négatif: pas d'impôt
+        base_imposable = max(0.0, resultat_fiscal)
         impots_annuels = base_imposable * (tmi + ps)
-        details_fiscaux = {
-            "amort_bien": round(amort_bien, 2),
-            "amort_meubles": round(amort_meubles, 2),
-            "interets_y1": round(interest_y1, 2),
-            "type": "LMNP réel (approx)"
-        }
+        details_fiscaux = {"amort_bien": round(amort_bien, 2), "amort_meubles": round(amort_meubles, 2), "interets_y1": round(interest_y1, 2), "type": "LMNP réel (approx)"}
     else:
         raise HTTPException(status_code=400, detail="Régime fiscal inconnu")
 
